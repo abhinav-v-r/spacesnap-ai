@@ -1,0 +1,61 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>SpaceSnap AI</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#fff;--fg:#14213d;--card:#f1f4f9;--ac:#2a5bd7}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b1020;--fg:#e8ecf7;--card:#171e36;--ac:#7ea2ff}}
+:root[data-theme="dark"]{--bg:#0b1020;--fg:#e8ecf7;--card:#171e36;--ac:#7ea2ff}
+body{margin:0;padding:16px;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif;max-width:760px;margin:auto}
+h1{margin:0 0 4px}.s{border-radius:12px;background:var(--card);padding:12px;margin:12px 0}
+canvas{max-width:100%;border-radius:8px;display:block}button,label.b{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:9px 13px;margin:3px 3px 3px 0;font-size:15px;cursor:pointer;display:inline-block}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px}.st{font-weight:700;color:var(--ac)}
+</style></head><body>
+<h1>🛰️ SpaceSnap AI</h1><div>What's happening in this space image?</div>
+<div class="s"><button onclick="sample('earth')">Sample: Earth scene</button><button onclick="sample('moon')">Sample: Lunar surface</button>
+<label class="b">Upload NASA image<input id="f" type="file" accept="image/*" hidden></label></div>
+<div class="s"><div class="st">1 · Image</div><canvas id="a"></canvas></div>
+<div class="s"><div class="st">2 · Feature detection</div><canvas id="o"></canvas><div id="leg"></div></div>
+<div class="s"><div class="st">3 · Explanation</div><div id="ex">Pick or upload an image.</div></div>
+<script>
+const W=300,C={cloud:['Clouds','#ffffff'],ice:['Ice / snow','#9be7ff'],ocean:['Ocean','#1e5bff'],forest:['Forest / vegetation','#18c04a'],land:['Land / desert','#e0a53a'],fire:['Fires / hot spots','#ff2d2d'],urban:['Urban lights','#ffe94d'],rock:['Craters / rocky terrain','#b36cff']};
+function rgb2hsv(r,g,b){r/=255;g/=255;b/=255;const m=Math.max(r,g,b),n=Math.min(r,g,b),d=m-n;let h=0;if(d){h=m==r?((g-b)/d)%6:m==g?(b-r)/d+2:(r-g)/d+4;h*=60;if(h<0)h+=360}return[h,m?d/m:0,m]}
+function cls(r,g,b,dark){const[h,s,v]=rgb2hsv(r,g,b);
+ if(r>200&&g>50&&g<175&&b<90&&s>.6)return'fire';
+ if(dark&&v>.55)return'urban';
+ if(v>.78&&s<.2)return b-r>12?'ice':'cloud';
+ if(h>=185&&h<=265&&s>.25)return'ocean';
+ if(h>=70&&h<185&&s>.2)return'forest';
+ if(h>=15&&h<70&&s>.2)return'land';
+ if(s<.18&&v>.15&&v<=.78)return'rock';return null}
+function analyze(img){const a=document.getElementById('a'),o=document.getElementById('o'),H=Math.round(W*img.height/img.width);
+ a.width=o.width=W;a.height=o.height=H;const x=a.getContext('2d');x.drawImage(img,0,0,W,H);
+ const d=x.getImageData(0,0,W,H).data;let mean=0;for(let i=0;i<d.length;i+=4)mean+=(d[i]+d[i+1]+d[i+2])/765;mean/=d.length/4;
+ const dark=mean<.25,cnt={},sx={},sy={},oc=o.getContext('2d');oc.drawImage(img,0,0,W,H);
+ const m=oc.getImageData(0,0,W,H),n=W*H;
+ for(let p=0;p<n;p++){const i=p*4,k=cls(d[i],d[i+1],d[i+2],dark);if(!k)continue;cnt[k]=(cnt[k]||0)+1;sx[k]=(sx[k]||0)+p%W;sy[k]=(sy[k]||0)+(p/W|0);
+  const c=parseInt(C[k][1].slice(1),16);m.data[i]=(d[i]+(c>>16))/2;m.data[i+1]=(d[i+1]+(c>>8&255))/2;m.data[i+2]=(d[i+2]+(c&255))/2}
+ oc.putImageData(m,0,0);
+ const f=Object.keys(cnt).map(k=>[k,cnt[k]/n]).filter(e=>e[1]>=.03).sort((p,q)=>q[1]-p[1]);
+ oc.font='bold 12px sans-serif';oc.textAlign='center';
+ f.forEach(([k])=>{const X=sx[k]/cnt[k],Y=sy[k]/cnt[k],t=C[k][0];oc.lineWidth=3;oc.strokeStyle='#000';oc.strokeText(t,X,Y);oc.fillStyle='#fff';oc.fillText(t,X,Y)});
+ document.getElementById('leg').innerHTML=f.map(([k,p])=>`<div><span class="sw" style="background:${C[k][1]}"></span>${C[k][0]}: ${(p*100).toFixed(1)}%</div>`).join('')||'No clear features found.';
+ document.getElementById('ex').innerHTML=explain(f)}
+function explain(f){if(!f.length)return'No distinct features were found; try a clearer image.';
+ const nm=k=>C[k][0].toLowerCase(),l=f.map(e=>nm(e[0]));
+ const list=l.length>1?l.slice(0,-1).join(', ')+' and '+l.at(-1):l[0];
+ let t=`<b>Detected:</b> ${list}.<br><b>Explanation:</b> This image shows `;
+ const ks=f.map(e=>e[0]);
+ if(ks.includes('cloud')&&ks.includes('ocean'))t+='a cloud system over the ocean'+(ks.includes('land')||ks.includes('forest')?' near a coastline':'');
+ else if(ks.includes('urban'))t+='city lights glowing on the night side of Earth';
+ else if(ks.includes('rock')&&!ks.includes('ocean'))t+='a rocky, cratered surface like the Moon or Mars';
+ else t+=`mostly ${nm(ks[0])}`;
+ if(ks.includes('ice'))t+=', with ice or snow at high latitudes';
+ if(ks.includes('fire'))t+=', and bright hot spots that may be wildfires';
+ return t+'. The largest feature covers about '+(f[0][1]*100).toFixed(0)+'% of the image.'}
+function sample(t){const c=document.createElement('canvas');c.width=400;c.height=300;const x=c.getContext('2d');
+ if(t=='earth'){x.fillStyle='#0f3fae';x.fillRect(0,0,400,300);x.fillStyle='#2f8f3a';x.beginPath();x.moveTo(0,180);x.quadraticCurveTo(120,140,200,200);x.lineTo(180,300);x.lineTo(0,300);x.fill();
+  x.fillStyle='#c9a24a';x.fillRect(0,260,120,40);x.fillStyle='#f4fbff';x.fillRect(0,0,400,28);
+  x.fillStyle='#fff';[[250,90,60],[320,120,45],[200,60,40],[290,60,50]].forEach(a=>{x.beginPath();x.arc(a[0],a[1],a[2],0,7);x.fill()})}
+ else{x.fillStyle='#8a8a8a';x.fillRect(0,0,400,300);for(let i=0;i<40;i++){const a=Math.random()*400,b=Math.random()*300,r=8+Math.random()*30;x.fillStyle='#555';x.beginPath();x.arc(a,b,r,0,7);x.fill();x.fillStyle='#a5a5a5';x.beginPath();x.arc(a+r*.2,b+r*.2,r*.7,0,7);x.fill()}}
+ const i=new Image();i.onload=()=>analyze(i);i.src=c.toDataURL()}
+document.getElementById('f').onchange=e=>{const i=new Image();i.onload=()=>analyze(i);i.src=URL.createObjectURL(e.target.files[0])};
+sample('earth');
+</script></body></html>
